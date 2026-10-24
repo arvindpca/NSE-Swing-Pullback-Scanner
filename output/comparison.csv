@@ -1,17 +1,10 @@
 Base,Variant,Trades,Win%,PF,PnL_2y,MaxDD,TrainPnL,TestTrades,TestPnL
-RSI40 | SL=swing5 | T1.5,Base,83,47.0,1.15,5566,-9068,8330,4,-2764
-RSI40 | SL=swing5 | T1.5,+quality,19,52.6,1.38,3168,-5233,3168,0,0
-RSI40 | SL=swing5 | T1.5,+strong_close,74,47.3,1.06,2058,-9318,4822,4,-2764
-RSI40 | SL=swing5 | T1.5,+partial,84,52.4,1.04,1218,-10802,3982,4,-2764
-RSI40 | SL=swing5 | T1.5,+timestop,94,48.9,1.25,8387,-6199,10113,4,-1726
-RSI40 | SL=swing5 | T1.5,+size,83,47.0,1.25,6731,-4860,9495,4,-2764
-RSI40 | SL=swing5 | T1.5,ALL,17,52.9,0.88,-542,-4176,-542,0,0
-RSI40 | SL=swing5 | T1.5,SMART(size+timestop),94,48.9,1.41,9942,-4508,11668,4,-1726
-Breakout | SL=atr1.5 | T1.5,Base,199,44.7,1.09,10246,-20133,13116,15,-2870
-Breakout | SL=atr1.5 | T1.5,+quality,172,50.0,1.3,26009,-15236,25315,10,694
-Breakout | SL=atr1.5 | T1.5,+strong_close,192,43.2,1.03,3124,-22980,7456,14,-4332
-Breakout | SL=atr1.5 | T1.5,+partial,222,48.6,0.88,-14079,-24646,-10697,15,-3382
-Breakout | SL=atr1.5 | T1.5,+timestop,252,45.6,0.93,-8990,-18586,-3294,16,-5696
-Breakout | SL=atr1.5 | T1.5,+size,199,44.7,1.07,6377,-18105,9247,15,-2870
-Breakout | SL=atr1.5 | T1.5,ALL,201,51.7,0.98,-1201,-14000,-3245,10,2044
-Breakout | SL=atr1.5 | T1.5,SMART(quality),172,50.0,1.3,26009,-15236,25315,10,694
+Breakout+Quality | SL=atr1.5 | T1.5,Base,172,50.0,1.3,26009,-15236,25315,10,694
+Breakout+Quality | SL=atr1.5 | T1.5,+consol,139,46.0,1.11,7894,-12629,4715,10,3179
+Breakout+Quality | SL=atr1.5 | T1.5,+no_resist,142,52.8,1.45,29335,-6564,27613,9,1722
+Breakout+Quality | SL=atr1.5 | T1.5,+bo_sl,243,41.2,0.92,-12645,-27236,-14215,13,1570
+Breakout+Quality | SL=atr1.5 | T1.5,+no_chase,144,45.1,0.99,-712,-10114,-3883,8,3171
+Breakout+Quality | SL=atr1.5 | T1.5,+sector,160,48.1,1.26,20573,-12360,19879,10,694
+Breakout+Quality | SL=atr1.5 | T1.5,+adx,158,48.1,1.22,17337,-9268,19576,8,-2239
+Breakout+Quality | SL=atr1.5 | T1.5,ALL,66,37.9,0.82,-7627,-16649,-6962,6,-665
+Breakout+Quality | SL=atr1.5 | T1.5,SMART(no_resist),142,52.8,1.45,29335,-6564,27613,9,1722
