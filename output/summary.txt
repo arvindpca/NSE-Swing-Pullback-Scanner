@@ -1,0 +1,38 @@
+Backtest period: 2024-10-24 se aaj tak | Stocks: 488
+
+
+=== Original (aapka) ===
+Total trades      : 6
+Win rate          : 33.3%
+Avg return/trade  : -0.28%
+Avg holding days  : 3.0
+Profit factor     : 0.89   (1.5 se upar achha)
+Total P&L         : Rs -480  (har trade Rs 1000 risk)
+Max drawdown      : Rs -2,183
+Exit reasons      : {'SL': 4, 'Target': 2}
+Saal-wise (trades, P&L Rs):
+          count   sum
+ExitDate             
+2024          2   901
+2025          4 -1381
+
+
+=== FINAL (naya) ===
+Total trades      : 16
+Win rate          : 18.8%
+Avg return/trade  : -2.08%
+Avg holding days  : 8.2
+Profit factor     : 0.53   (1.5 se upar achha)
+Total P&L         : Rs -5,165  (har trade Rs 1000 risk)
+Max drawdown      : Rs -4,630
+Exit reasons      : {'SL': 10, 'Time': 3, 'Target': 3}
+Saal-wise (trades, P&L Rs):
+          count   sum
+ExitDate             
+2024          1 -1040
+2025          7 -2347
+2026          8 -1778
+
+
+KAL ke liye stocks (0):
+Aaj koi signal nahi.
