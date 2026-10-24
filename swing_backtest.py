@@ -52,8 +52,14 @@ def get_symbols():
         os.makedirs(DATA_DIR, exist_ok=True)
         df = pd.read_csv(NIFTY500_URL, storage_options={"User-Agent": "Mozilla/5.0"})
         df.to_csv(local, index=False)
-    df = pd.read_csv(local)
-    return [s.strip() + ".NS" for s in df["Symbol"].dropna()]
+    df = pd.read_csv(local).dropna(subset=["Symbol"])
+    global SECTOR_OF
+    if "Industry" in df.columns:
+        SECTOR_OF = {r.Symbol.strip() + ".NS": r.Industry for r in df.itertuples()}
+    return [s.strip() + ".NS" for s in df["Symbol"]]
+
+
+SECTOR_OF = {}
 
 
 # ========================= 2. DATA (cache ke saath) =========================
@@ -128,6 +134,18 @@ def add_indicators(d, nifty):
     d["ATR"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
     d["RET63"] = c / c.shift(63) - 1
     d["HH252"] = h.rolling(252, min_periods=150).max()          # 52 hafte ka high
+    d["HH252_PREV"] = h.shift(1).rolling(251, min_periods=150).max()
+    d["RANGE20"] = h.shift(1).rolling(20).max() / l.shift(1).rolling(20).min() - 1
+    # ADX 14
+    up, dn = h.diff(), -l.diff()
+    pdm = pd.Series(np.where((up > dn) & (up > 0), up, 0.0), index=d.index)
+    ndm = pd.Series(np.where((dn > up) & (dn > 0), dn, 0.0), index=d.index)
+    tr_ = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+    atr_ = tr_.ewm(alpha=1 / 14, adjust=False).mean()
+    pdi = 100 * pdm.ewm(alpha=1 / 14, adjust=False).mean() / atr_
+    ndi = 100 * ndm.ewm(alpha=1 / 14, adjust=False).mean() / atr_
+    dx = 100 * (pdi - ndi).abs() / (pdi + ndi).replace(0, np.nan)
+    d["ADX"] = dx.ewm(alpha=1 / 14, adjust=False).mean()
     rng = (h - l).replace(0, np.nan)
     d["CLOSE_POS"] = (c - l) / rng                               # 1 = candle ke top pe close
     # Market (Nifty 50) data stock ki dates pe
@@ -184,17 +202,19 @@ SETUPS = {"EMA20-Pullback": s_ema20_pullback,
           "20D-Breakout": s_breakout}
 
 # Pichle run (v3) ke 2 best base combination - dono mein Market + RS filter
+# Pichle run (v4) ka winner: 20D Breakout + Quality, Market+RS filter ke saath
 BASES = {
-    "RSI40 | SL=swing5 | T1.5": {"setup": "RSI40-Recovery", "sl": "swing5", "rr": 1.5},
-    "Breakout | SL=atr1.5 | T1.5": {"setup": "20D-Breakout", "sl": "atr1.5", "rr": 1.5},
+    "Breakout+Quality | SL=atr1.5 | T1.5":
+        {"setup": "20D-Breakout", "sl": "atr1.5", "rr": 1.5, "flags": {"quality"}},
 }
-# Sudhaar (har ek alag test hoga, phir mila ke)
+# Naye sudhaar (har ek alag test hoga, phir mila ke)
 IMPROVEMENTS = {
-    "quality": "Top 20% strong stock + 52 hafte ke high ke 15% paas",
-    "strong_close": "Close candle ke upar wale 25% mein",
-    "partial": "1x pe aadha profit book, baaki ka SL entry pe",
-    "timestop": "7 din mein 0.5x nahi gaya to bech do",
-    "size": "Nifty 50 EMA ke neeche ho to aadha risk",
+    "consol": "Breakout se pehle 20 din range 15% ke andar (shaant phase)",
+    "no_resist": "52 hafte ka high hi toda (upar resistance nahi)",
+    "bo_sl": "SL breakout level (20 din high) ke thoda neeche, agar ATR SL se paas",
+    "no_chase": "Close EMA20 se 8% se zyada upar nahi",
+    "sector": "Sector ka 3 mahine return Nifty se zyada",
+    "adx": "ADX > 20 (trend mein taakat)",
 }
 
 
@@ -204,17 +224,33 @@ def get_signal(d, setup, flags):
         s &= (d["RSRANK"] >= 0.80) & (d["Close"] >= 0.85 * d["HH252"])
     if "strong_close" in flags:
         s &= d["CLOSE_POS"] >= 0.75
+    if "consol" in flags:
+        s &= d["RANGE20"] <= 0.15
+    if "no_resist" in flags:
+        s &= d["Close"] >= d["HH252_PREV"]
+    if "no_chase" in flags:
+        s &= d["Close"] <= d["EMA20"] * 1.08
+    if "sector" in flags:
+        s &= d["SECTOR_OK"]
+    if "adx" in flags:
+        s &= d["ADX"] > 20
     return s.fillna(False)
 
 
-def sl_price(row, entry, sl_mode):
-    return row["LL5"] if sl_mode == "swing5" else entry - 1.5 * row["ATR"]
+def sl_price(row, entry, sl_mode, flags=()):
+    sl = row["LL5"] if sl_mode == "swing5" else entry - 1.5 * row["ATR"]
+    if "bo_sl" in flags:
+        bo = row["HH20"] - 0.25 * row["ATR"]
+        if sl < bo < entry:
+            sl = bo
+    return sl
 
 
 # ========================= 5. BACKTEST =========================
 def trades_for_stock(sym, d, sig, start, sl_mode, rr, flags):
     o, h, l, c = (d[k].values for k in ["Open", "High", "Low", "Close"])
     ll5, atr, volx = d["LL5"].values, d["ATR"].values, d["VOLX"].values
+    hh20 = d["HH20"].values
     strong = d["MKT_STRONG"].values
     idx, sig = d.index, sig.values
     out, i, n = [], 0, len(d)
@@ -228,6 +264,10 @@ def trades_for_stock(sym, d, sig, start, sl_mode, rr, flags):
             continue
         entry = max(o[j], trig)
         sl = ll5[i] if sl_mode == "swing5" else entry - 1.5 * atr[i]
+        if "bo_sl" in flags:
+            bo = hh20[i] - 0.25 * atr[i]
+            if sl < bo < entry:
+                sl = bo
         risk = entry - sl
         if risk <= 0 or risk / entry > MAX_SL_PCT:
             i += 1
@@ -292,6 +332,7 @@ def stats(t):
 
 
 def run(ind, start, base, flags):
+    flags = set(flags) | base.get("flags", set())
     sigs_tr = []
     for s, d in ind.items():
         sig = get_signal(d, base["setup"], flags)
@@ -318,6 +359,15 @@ def main():
     rank = pd.DataFrame({s: d["RET63"] for s, d in ind.items()}).rank(axis=1, pct=True)
     for s, d in ind.items():
         d["RSRANK"] = rank[s].reindex(d.index)
+    # Sector strength: sector ke stocks ka average 3 mahine return > Nifty
+    rets = pd.DataFrame({s: d["RET63"] for s, d in ind.items()})
+    n63 = nifty["RET63"].reindex(rets.index, method="ffill")
+    sec_ok = {}
+    for sec in set(SECTOR_OF.get(s, "NA") for s in ind):
+        cols = [s for s in ind if SECTOR_OF.get(s, "NA") == sec]
+        sec_ok[sec] = rets[cols].mean(axis=1) > n63
+    for s, d in ind.items():
+        d["SECTOR_OK"] = sec_ok[SECTOR_OF.get(s, "NA")].reindex(d.index).fillna(False)
     print(f"{len(ind)} stocks ready")
 
     def period_ret(df, a, b):
@@ -340,26 +390,26 @@ def main():
     for bname, base in BASES.items():
         # 1) Base + har sudhaar alag
         base_t = run(ind, start, base, set())
-        store[(bname, "Base")] = (base_t, set())
+        store[(bname, "Base")] = (base_t, set(base["flags"]))
         rows.append(row(bname, "Base", base_t))
         base_train = split_stats(base_t)[0]["PnL"]
         helped = set()
         for flag in IMPROVEMENTS:
             t = run(ind, start, base, {flag})
-            store[(bname, "+" + flag)] = (t, {flag})
+            store[(bname, "+" + flag)] = (t, {flag} | base["flags"])
             rows.append(row(bname, "+" + flag, t))
             if split_stats(t)[0]["PnL"] > base_train:       # sirf TRAIN dekh ke faisla
                 helped.add(flag)
             print("done:", bname, flag)
         # 2) Sab ek saath
         t = run(ind, start, base, set(IMPROVEMENTS))
-        store[(bname, "ALL")] = (t, set(IMPROVEMENTS))
+        store[(bname, "ALL")] = (t, set(IMPROVEMENTS) | base["flags"])
         rows.append(row(bname, "ALL", t))
         # 3) SMART = sirf woh sudhaar jo TRAIN mein kaam aaye
         if helped:
             lbl = "SMART(" + "+".join(sorted(helped)) + ")"
             t = run(ind, start, base, helped)
-            store[(bname, lbl)] = (t, helped)
+            store[(bname, lbl)] = (t, helped | base["flags"])
             rows.append(row(bname, lbl, t))
 
     cmp_df = pd.DataFrame(rows)
@@ -409,7 +459,7 @@ def main():
                 continue
             r = d.iloc[-1]
             entry = r["High"] * 1.001
-            sl = sl_price(r, entry, base["sl"])
+            sl = sl_price(r, entry, base["sl"], bflags)
             risk = entry - sl
             if risk <= 0 or risk / entry > MAX_SL_PCT:
                 continue
