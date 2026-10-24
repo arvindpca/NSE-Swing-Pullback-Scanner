@@ -1,0 +1,11 @@
+Setup,Trades,Win%,AvgRet%,PF,PnL_Rs,MaxDD_Rs,AvgDays
+E 20D Breakout | SL=candle,1167,37.4,-0.37,0.83,-125732,-128506,8.4
+D RSI40 Recovery | SL=swing5,417,37.9,-0.58,0.81,-43198,-60862,9.9
+C EMA20 Pullback | SL=candle,1917,34.6,-0.54,0.78,-287131,-293771,7.4
+C EMA20 Pullback | SL=swing5,1489,39.0,-0.76,0.77,-184941,-183896,10.8
+A Original | SL=candle,7,28.6,-1.47,0.72,-1504,-2183,2.9
+D RSI40 Recovery | SL=candle,489,32.5,-0.82,0.71,-91796,-103581,8.0
+E 20D Breakout | SL=swing5,733,40.8,-0.87,0.71,-99391,-98362,12.1
+A Original | SL=swing5,4,25.0,-0.98,0.62,-1220,-3174,4.0
+B Final-v1 | SL=candle,18,16.7,-2.87,0.45,-7209,-6692,8.4
+B Final-v1 | SL=swing5,11,9.1,-4.39,0.08,-6091,-5068,12.2
