@@ -1,31 +1,35 @@
-Backtest period: 2024-10-24 se aaj tak | Stocks: 489
-Rules: entry = signal High ke upar, target = 2.0x risk, max 15 din, cost 0.2%, har trade Rs 1000 risk
+Period: 2024-10-24 -> 2026-10-24 | Stocks: 489 | TRAIN: 2024-10-24-2026-04-24 | TEST: 2026-04-24-2026-10-24
+Rules: max 5 trades ek saath, Rs 1000 risk/trade, cost 0.2%
 
-SAB SETUPS KA COMPARISON (PF = profit factor, 1.5+ achha):
-                       Setup  Trades  Win%  AvgRet%   PF  PnL_Rs  MaxDD_Rs  AvgDays
-  E 20D Breakout | SL=candle    1167  37.4    -0.37 0.83 -125732   -128506      8.4
-D RSI40 Recovery | SL=swing5     417  37.9    -0.58 0.81  -43198    -60862      9.9
-C EMA20 Pullback | SL=candle    1917  34.6    -0.54 0.78 -287131   -293771      7.4
-C EMA20 Pullback | SL=swing5    1489  39.0    -0.76 0.77 -184941   -183896     10.8
-      A Original | SL=candle       7  28.6    -1.47 0.72   -1504     -2183      2.9
-D RSI40 Recovery | SL=candle     489  32.5    -0.82 0.71  -91796   -103581      8.0
-  E 20D Breakout | SL=swing5     733  40.8    -0.87 0.71  -99391    -98362     12.1
-      A Original | SL=swing5       4  25.0    -0.98 0.62   -1220     -3174      4.0
-      B Final-v1 | SL=candle      18  16.7    -2.87 0.45   -7209     -6692      8.4
-      B Final-v1 | SL=swing5      11   9.1    -4.39 0.08   -6091     -5068     12.2
+MARKET KAISA THA (simple buy & hold):
+  2 saal : Nifty 50 -7.4% | Nifty 500 stocks avg +12.1%
+  TRAIN  : Nifty 50 -2.1% | Nifty 500 stocks avg +10.7%
+  TEST   : Nifty 50 -5.4% | Nifty 500 stocks avg -2.5%
+  Nifty 200 EMA ke upar tha: 55% din
 
-Koi setup 40+ trades ke saath profit mein nahi. Live mat lagao.
+TOP 15 COMBINATIONS (TRAIN PF ke hisaab se):
+                                      Combo  TrainTrades  TrainWin%  TrainPF  TrainPnL  TestTrades  TestWin%  TestPF  TestPnL  Full2yPnL  MaxDD
+ RSI40-Recovery | Mkt+RS | SL=swing5 | T1.5           79       49.4     1.24      8330           4       0.0    0.00    -2764       5566  -9068
+    20D-Breakout | None | SL=swing5 | Trail          106       35.8     1.22      8026          37      32.4    0.51    -8652       -626 -10277
+   RSI40-Recovery | Mkt+RS | SL=swing5 | T2           78       44.9     1.15      5292           4       0.0    0.00    -2764       2528 -14625
+       20D-Breakout | None | SL=swing5 | T2          129       48.8     1.14      6888          46      32.6    0.39   -14507      -7619 -22512
+   20D-Breakout | Mkt+RS | SL=atr1.5 | T1.5          184       45.7     1.13     13116          15      33.3    0.72    -2870      10246 -20133
+ RSI40-Recovery | Mkt+RS | SL=atr1.5 | T1.5           89       47.2     1.11      4823           4       0.0    0.00    -2279       2544 -12964
+     20D-Breakout | None | SL=swing5 | T1.5          133       50.4     1.11      5497          47      34.0    0.52   -10705      -5208 -15923
+    20D-Breakout | None | SL=atr1.5 | Trail          140       30.7     1.08      7560          52      25.0    0.67   -11984      -4424 -26464
+     20D-Breakout | Mkt+RS | SL=atr1.5 | T2          166       42.2     1.06      6193          14      28.6    0.24    -7053       -860 -25012
+     20D-Breakout | Mkt+RS | SL=swing5 | T2          107       45.8     1.04      1877          11      18.2    0.11    -5188      -3311 -10787
+   20D-Breakout | Mkt+RS | SL=swing5 | T1.5          112       48.2     0.99      -351          11      18.2    0.11    -5188      -5539 -10463
+   RSI40-Recovery | Mkt+RS | SL=atr1.5 | T2           88       39.8     0.94     -2904           4       0.0    0.00    -2279      -5183 -18107
+   RSI40-Recovery | None | SL=swing5 | T1.5          142       43.7     0.90     -6879          51      31.4    0.49   -15392     -22271 -27947
+     20D-Breakout | None | SL=atr1.5 | T1.5          248       40.3     0.90    -15192          95      32.6    0.69   -19971     -35163 -38409
+EMA20-Pullback | Mkt+RS | SL=atr1.5 | Trail          132       23.5     0.87     -9934          11      27.3    0.28    -5360     -15294 -18536
 
-=== BEST: E 20D Breakout | SL=candle ===
-Exit reasons: {'SL': 637, 'Time': 292, 'Target': 238}
-Saal-wise (trades, P&L Rs):
-          count    sum
-ExitDate              
-2024        122 -23163
-2025        549 -23413
-2026        496 -79156
+BEST (train se chuna): RSI40-Recovery | Mkt+RS | SL=swing5 | T1.5
+  TRAIN: 79 trades, win 49.4%, PF 1.24, P&L Rs 8,330
+  TEST : 4 trades, win 0.0%, PF 0.0, P&L Rs -2,764
+  RESULT: FAIL - test mein profit nahi, live mat lagao
+  Exit reasons: {'SL': 30, 'Time': 29, 'Target': 24}
 
-
-KAL ke liye stocks [E 20D Breakout | SL=candle] (1):
- Stock       Date  Close  BuyAbove     SL  Target  Qty  RSI  VolX
-CYIENT 2026-10-23 1233.0   1269.27 1200.1  1407.6   14 66.7  11.3
+KAL ke liye stocks (0):
+Best setup test mein fail, list nahi bheji.
