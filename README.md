@@ -2,17 +2,18 @@
 
 Nifty 500 stocks pe daily swing scanner + 2 saal ka backtest. Data Yahoo Finance (yfinance) se.
 
-## Strategy (FINAL conditions)
-1. Green candle (Close > Open)
-2. Close > EMA 200 (bada trend upar)
-3. RSI(14) 30 se 50 ke beech
-4. Pichle 5 din mein RSI 35 se neeche gaya tha (pullback)
-5. MACD line aaj Signal ke upar cross
-6. Volume > 20 din average x 1.5
-7. Higher low (Low > kal ka Low)
-8. Close > 50, average volume > 1 lakh
+## Strategy (v3)
+Script 36 combination test karta hai:
+- **Setups:** EMA20 Pullback, RSI 40 Recovery, 20 din Breakout
+- **Filter:** koi nahi / Market (Nifty 50 > 200 EMA) + Relative Strength (stock 3 mahine mein Nifty se zyada bhaaga)
+- **SL:** 5 din ka lowest low / entry - 1.5 x ATR
+- **Exit:** 1.5x target / 2x target / EMA20 trailing
 
-**Trade:** Agle din signal candle ke High ke upar entry, SL = signal candle ka Low, Target = 2x risk, max 15 din hold.
+Real jaisa: ek time pe max 5 trades, ek stock mein ek hi trade.
+Walk-forward: pehle 18 mahine pe best chuna jaata hai, aakhri 6 mahine pe test. **Test pass hone par hi** kal ki list bheji jaati hai.
+
+## Open positions
+`open_positions.csv` mein jo stock aapne kharida hai uska naam (jaise `CYIENT`) likho. Woh stock list mein dobara nahi aayega. Bechne ke baad naam hata do.
 
 ## Kaise chalta hai
 - GitHub Actions har Mon-Fri **4:15 PM IST** pe khud chalta hai (`.github/workflows/scan.yml`)
@@ -20,7 +21,8 @@ Nifty 500 stocks pe daily swing scanner + 2 saal ka backtest. Data Yahoo Finance
 - Price data cache hota hai, isliye pehli baar ke baad sirf naya data aata hai
 
 ## Output (`output/` folder)
-- `summary.txt` - backtest result (original vs FINAL)
+- `summary.txt` - poora result (market, top combinations, best ka train/test)
+- `comparison.csv` - 36 combination ka table
 - `trades.csv` - 2 saal ki saari trades
 - `today_signals.csv` - kal ke liye stock list (BuyAbove, SL, Target, Qty)
 

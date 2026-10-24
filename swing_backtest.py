@@ -1,44 +1,52 @@
 """
-Swing Pullback Scanner + 2 Saal Backtest (Nifty 500, Daily)
-===========================================================
+Swing Scanner + Backtest (Nifty 500, Daily) - v3
+================================================
 Kaise chalayein:
-    pip install yfinance pandas numpy
+    pip install -r requirements.txt
     python swing_backtest.py
 
-Pehli baar: ~500 stocks ka 3 saal data download hoga (5-10 min), data/ folder mein save.
-Agli baar: sirf pichle ~15 din ka naya data aayega (1-2 min).
+Kya karta hai:
+  1. Nifty 500 + Nifty 50 index ka data (cache ke saath) laata hai
+  2. 3 setups x 2 filter x 2 SL x 3 exit = 36 combination backtest karta hai
+  3. Real jaisa: ek time pe max 5 trades, ek stock mein ek hi trade
+  4. Walk-forward: pehle 18 mahine (TRAIN) pe best chuna, aakhri 6 mahine (TEST) pe jaancha
+  5. Best combo dono jagah profit mein ho tabhi kal ki stock list bhejta hai
 
-Output files:
-    output/summary.txt        -> backtest ka result (win rate, P&L, saal-wise)
-    output/trades.csv         -> har trade ki detail
-    output/today_signals.csv  -> KAL ke liye stock list (entry, SL, target ke saath)
+Output (output/ folder):
+    summary.txt         -> poora result simple bhasha mein
+    comparison.csv      -> 36 combination ka table
+    trades.csv          -> best combination ki saari trades
+    today_signals.csv   -> kal ke liye stocks
+open_positions.csv (repo root) -> jo stock aapne kharida hai, uska naam likho; woh list mein nahi aayega
 """
 
 import os
 import time
 import pickle
-import pandas as pd
-import numpy as np
-import json
 import urllib.request
 import urllib.parse
+import pandas as pd
+import numpy as np
 import yfinance as yf
 
 # ------------------------- SETTINGS (yahan badlo) -------------------------
 BACKTEST_YEARS = 2
-RISK_PER_TRADE = 1000        # har trade mein kitna Rs risk (position size isse banega)
-REWARD_RISK = 2.0            # target = risk x 2
-MAX_HOLD_DAYS = 15           # itne din mein target/SL nahi aaya to close pe exit
+TEST_MONTHS = 6              # aakhri itne mahine "unseen" test ke liye
+RISK_PER_TRADE = 1000        # har trade mein kitna Rs risk
+MAX_POSITIONS = 5            # ek time pe max open trades
 COST_PCT = 0.2               # brokerage + slippage, round trip (%)
+MAX_SL_PCT = 0.10            # 10% se door SL ho to trade skip
+MIN_TRAIN_TRADES = 30        # train mein isse kam trades -> bharosemand nahi
 DATA_DIR = "data"
 OUT_DIR = "output"
+OPEN_POS_FILE = "open_positions.csv"
+INDEX = "^NSEI"              # Nifty 50
 NIFTY500_URL = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
 # --------------------------------------------------------------------------
 
 
 # ========================= 1. STOCK LIST =========================
 def get_symbols():
-    """Nifty 500 list. Pehle local file dekho, nahi to NSE se lo."""
     local = os.path.join(DATA_DIR, "nifty500.csv")
     if not os.path.exists(local):
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -63,9 +71,8 @@ def load_data(symbols):
         print(f"Cache mila (last date {last.date()}).")
     if not fresh:
         data = {}
-        print("Pura 3 saal ka data download ho raha hai (2 saal backtest + 1 saal warmup)...")
+        print("Pura 3 saal ka data download ho raha hai...")
 
-    # Jo stock cache mein hai unka sirf 1 mahina, naye stock ka 3 saal
     old = [s for s in symbols if s in data]
     new = [s for s in symbols if s not in data]
     jobs = [(old[i:i + 50], "1mo") for i in range(0, len(old), 50)] + \
@@ -80,10 +87,14 @@ def load_data(symbols):
             continue
         for s in batch:
             try:
-                d = raw[s] if len(batch) > 1 else raw
-                d = d[["Open", "High", "Low", "Close", "Volume"]].dropna()
+                try:
+                    d = raw[s]
+                except KeyError:
+                    d = raw
+                d = d[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
                 if d.empty:
                     continue
+                d.index = pd.to_datetime(d.index).tz_localize(None)
                 if s in data and p == "1mo":
                     d = pd.concat([data[s], d])
                     d = d[~d.index.duplicated(keep="last")].sort_index()
@@ -99,242 +110,293 @@ def load_data(symbols):
 
 
 # ========================= 3. INDICATORS =========================
-def add_indicators(d):
+def add_indicators(d, nifty):
     d = d.copy()
-    c = d["Close"]
-    # RSI 14 (Wilder - Chartink jaisa)
+    c, h, l = d["Close"], d["High"], d["Low"]
     delta = c.diff()
     gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
     loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False).mean()
     d["RSI"] = 100 - 100 / (1 + gain / loss)
-    # MACD (26,12,9)
-    macd = c.ewm(span=12, adjust=False).mean() - c.ewm(span=26, adjust=False).mean()
-    d["MACD"] = macd
-    d["SIG"] = macd.ewm(span=9, adjust=False).mean()
     d["EMA20"] = c.ewm(span=20, adjust=False).mean()
     d["EMA50"] = c.ewm(span=50, adjust=False).mean()
     d["EMA200"] = c.ewm(span=200, adjust=False).mean()
     d["VOLSMA20"] = d["Volume"].rolling(20).mean()
-    d["HH20"] = d["High"].shift(1).rolling(20).max()     # pichle 20 din ka high (aaj ke bina)
-    d["LL5"] = d["Low"].rolling(5).min()                 # pichle 5 din ka lowest low (aaj samet)
+    d["VOLX"] = d["Volume"] / d["VOLSMA20"]
+    d["HH20"] = h.shift(1).rolling(20).max()
+    d["LL5"] = l.rolling(5).min()
+    tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+    d["ATR"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
+    d["RET63"] = c / c.shift(63) - 1
+    # Market (Nifty 50) data stock ki dates pe
+    n = nifty.reindex(d.index, method="ffill")
+    d["MKT_OK"] = n["Close"] > n["EMA200"]
+    d["RS_OK"] = d["RET63"] > n["RET63"]             # stock Nifty se zyada bhaaga
     return d
 
 
-# ========================= 4. SETUPS (sab ek saath test honge) =========================
+def nifty_ind(n):
+    n = n.copy()
+    n["EMA200"] = n["Close"].ewm(span=200, adjust=False).mean()
+    n["RET63"] = n["Close"] / n["Close"].shift(63) - 1
+    return n
+
+
+# ========================= 4. SETUPS =========================
 def liquid(d):
     return (d["Close"] > 50) & (d["VOLSMA20"] > 100000)
 
 
-def s_original(d):
-    """A. Aapka original Chartink screener."""
-    s = (d["Close"] > d["Open"]) & (d["RSI"] < 30) & \
-        (d["Volume"] > d["Volume"].shift(1) * 1.2) & (d["MACD"] > d["SIG"])
-    for k in range(1, 6):
-        s &= d["Low"] >= d["Low"].shift(k)
-    return s
-
-
-def s_final(d):
-    """B. Pehla FINAL: RSI 30-50 + MACD cross + volume 1.5x."""
-    macd_cross = (d["MACD"] > d["SIG"]) & (d["MACD"].shift(1) <= d["SIG"].shift(1))
-    return ((d["Close"] > d["Open"]) & (d["Close"] > d["EMA200"])
-            & (d["RSI"] > 30) & (d["RSI"] < 50) & (d["RSI"].rolling(5).min() < 35)
-            & macd_cross & (d["Volume"] > d["VOLSMA20"] * 1.5)
-            & (d["Low"] > d["Low"].shift(1)) & liquid(d))
-
-
 def s_ema20_pullback(d):
-    """C. Uptrend mein EMA20 tak pullback, phir green candle se bounce."""
-    return ((d["Close"] > d["EMA50"]) & (d["EMA50"] > d["EMA200"])        # strong uptrend
-            & (d["Low"].rolling(3).min() <= d["EMA20"] * 1.01)             # 3 din mein EMA20 chhua
-            & (d["Close"] > d["EMA20"]) & (d["Close"] > d["Open"])         # upar band, green
-            & (d["Close"] > d["High"].shift(1))                            # kal ka high toda
+    """C. Uptrend mein EMA20 tak pullback, phir bounce."""
+    return ((d["Close"] > d["EMA50"]) & (d["EMA50"] > d["EMA200"])
+            & (d["Low"].rolling(3).min() <= d["EMA20"] * 1.01)
+            & (d["Close"] > d["EMA20"]) & (d["Close"] > d["Open"])
+            & (d["Close"] > d["High"].shift(1))
             & (d["RSI"] > 40) & (d["RSI"] < 65)
-            & (d["Volume"] > d["VOLSMA20"] * 1.2) & liquid(d))
+            & (d["VOLX"] > 1.2) & liquid(d))
 
 
 def s_rsi40_recovery(d):
-    """D. Uptrend mein RSI 40 ke neeche gaya, aaj wapas 40 ke upar."""
+    """D. Uptrend mein RSI 40 ke neeche gaya, aaj wapas upar."""
     return ((d["Close"] > d["EMA200"])
-            & (d["RSI"] > 40) & (d["RSI"].shift(1) <= 40)                  # RSI crossed above 40
-            & (d["RSI"].rolling(5).min() < 40)
+            & (d["RSI"] > 40) & (d["RSI"].shift(1) <= 40)
             & (d["Close"] > d["Open"])
-            & (d["Volume"] > d["VOLSMA20"] * 1.2) & liquid(d))
+            & (d["VOLX"] > 1.2) & liquid(d))
 
 
 def s_breakout(d):
     """E. 20 din ka high breakout, volume ke saath."""
     return ((d["Close"] > d["EMA200"]) & (d["EMA50"] > d["EMA200"])
-            & (d["Close"] > d["HH20"])                                     # 20 din ka high toda
-            & (d["Close"] > d["Open"])
+            & (d["Close"] > d["HH20"]) & (d["Close"] > d["Open"])
             & (d["RSI"] > 55) & (d["RSI"] < 75)
-            & (d["Volume"] > d["VOLSMA20"] * 1.5) & liquid(d))
+            & (d["VOLX"] > 1.5) & liquid(d))
 
 
-SETUPS = {
-    "A Original": s_original,
-    "B Final-v1": s_final,
-    "C EMA20 Pullback": s_ema20_pullback,
-    "D RSI40 Recovery": s_rsi40_recovery,
-    "E 20D Breakout": s_breakout,
-}
-SL_MODES = {"candle": "Signal candle ka Low", "swing5": "Pichle 5 din ka Lowest Low"}
-MIN_TRADES = 40            # isse kam trades wala result bharosemand nahi
+SETUPS = {"EMA20-Pullback": s_ema20_pullback,
+          "RSI40-Recovery": s_rsi40_recovery,
+          "20D-Breakout": s_breakout}
+FILTERS = ["None", "Mkt+RS"]          # Mkt+RS = Nifty > 200EMA aur stock Nifty se strong
+SLS = ["swing5", "atr1.5"]            # 5 din ka low  /  entry - 1.5 x ATR
+EXITS = ["T1.5", "T2", "Trail"]       # 1.5x target / 2x target / EMA20 trailing
+
+
+def get_signal(d, setup, flt):
+    s = SETUPS[setup](d)
+    if flt == "Mkt+RS":
+        s = s & d["MKT_OK"] & d["RS_OK"]
+    return s.fillna(False)
+
+
+def sl_price(row, entry, sl_mode):
+    return row["LL5"] if sl_mode == "swing5" else entry - 1.5 * row["ATR"]
 
 
 # ========================= 5. BACKTEST =========================
-def backtest(sym, d, sig_fn, start, sl_mode):
-    sig = sig_fn(d).fillna(False).values
-    o, h, l, c = d["Open"].values, d["High"].values, d["Low"].values, d["Close"].values
-    slv = (d["Low"] if sl_mode == "candle" else d["LL5"]).values
-    idx = d.index
-    trades, i, n = [], 0, len(d)
+def trades_for_stock(sym, d, sig, start, sl_mode, exit_mode):
+    """Ek stock ki saari trades (ek time pe ek hi). Portfolio limit baad mein lagti hai."""
+    o, h, l, c = (d[k].values for k in ["Open", "High", "Low", "Close"])
+    ema20, ll5, atr, volx = d["EMA20"].values, d["LL5"].values, d["ATR"].values, d["VOLX"].values
+    idx, sig = d.index, sig.values
+    max_hold = 30 if exit_mode == "Trail" else 15
+    rr = {"T1.5": 1.5, "T2": 2.0}.get(exit_mode)
+    out, i, n = [], 0, len(d)
     while i < n - 1:
         if not sig[i] or idx[i] < start:
             i += 1
             continue
-        trig, sl = h[i], slv[i]
-        j = i + 1
-        # Entry sirf tab jab agle din price signal-candle ke high ke upar jaye
-        if h[j] <= trig:
+        trig, j = h[i], i + 1
+        if h[j] <= trig:                                   # agle din high nahi toda -> no entry
             i += 1
             continue
         entry = max(o[j], trig)
+        sl = ll5[i] if sl_mode == "swing5" else entry - 1.5 * atr[i]
         risk = entry - sl
-        if risk <= 0 or risk / entry > 0.10:     # 10% se bada SL -> skip
+        if risk <= 0 or risk / entry > MAX_SL_PCT:
             i += 1
             continue
-        target = entry + REWARD_RISK * risk
-        exit_px, reason, k = None, None, j
-        for k in range(j, min(j + MAX_HOLD_DAYS, n)):
-            if l[k] <= sl:                       # SL pehle maano (safe side)
+        target = entry + rr * risk if rr else None
+        exit_px = reason = None
+        for k in range(j, min(j + max_hold, n)):
+            if l[k] <= sl:
                 exit_px, reason = (min(o[k], sl) if k > j else sl), "SL"
                 break
-            if h[k] >= target:
+            if target and h[k] >= target:
                 exit_px, reason = (max(o[k], target) if k > j else target), "Target"
                 break
+            if exit_mode == "Trail" and k > j and c[k] < ema20[k]:
+                exit_px, reason = c[k], "Trail"
+                break
         if exit_px is None:
-            k = min(j + MAX_HOLD_DAYS - 1, n - 1)
+            k = min(j + max_hold - 1, n - 1)
             exit_px, reason = c[k], ("Time" if k < n - 1 else "Open")
-        ret = (exit_px - entry) / entry * 100 - COST_PCT
         r_mult = (exit_px - entry) / risk - (COST_PCT / 100 * entry / risk)
-        trades.append({
-            "Stock": sym.replace(".NS", ""), "SignalDate": idx[i].date(),
-            "EntryDate": idx[j].date(), "Entry": round(entry, 2), "SL": round(sl, 2),
-            "Target": round(target, 2), "ExitDate": idx[k].date(), "Exit": round(exit_px, 2),
-            "Reason": reason, "Days": k - j + 1, "Return%": round(ret, 2),
-            "R": round(r_mult, 2), "PnL_Rs": round(r_mult * RISK_PER_TRADE),
-        })
-        i = k + 1                                # ek stock mein ek time pe ek hi trade
-    return trades
+        out.append({"Stock": sym.replace(".NS", ""), "SignalDate": idx[i], "EntryDate": idx[j],
+                    "Entry": round(entry, 2), "SL": round(sl, 2), "ExitDate": idx[k],
+                    "Exit": round(exit_px, 2), "Reason": reason, "Days": k - j + 1,
+                    "Return%": round((exit_px - entry) / entry * 100 - COST_PCT, 2),
+                    "R": round(r_mult, 3), "VolX": round(volx[i], 2)})
+        i = k + 1
+    return out
+
+
+def apply_portfolio_limit(t):
+    """Ek time pe max MAX_POSITIONS trades. Ek din zyada signal -> zyada VolX wale pehle."""
+    if t.empty:
+        return t
+    t = t.sort_values(["EntryDate", "VolX"], ascending=[True, False])
+    taken, open_exits = [], []
+    for r in t.itertuples():
+        open_exits = [x for x in open_exits if x >= r.EntryDate]   # jo band ho gayi hata do
+        if len(open_exits) < MAX_POSITIONS:
+            taken.append(r.Index)
+            open_exits.append(r.ExitDate)
+    t = t.loc[taken].copy()
+    t["PnL_Rs"] = (t["R"] * RISK_PER_TRADE).round()
+    return t
 
 
 def stats(t):
     t = t[t["Reason"] != "Open"] if not t.empty else t
     if t.empty:
-        return {"Trades": 0, "Win%": 0, "AvgRet%": 0, "PF": 0, "PnL_Rs": 0, "MaxDD_Rs": 0, "AvgDays": 0}
-    wins, loss = t[t["R"] > 0], t[t["R"] <= 0]
-    pf = wins["R"].sum() / abs(loss["R"].sum()) if len(loss) else 99
+        return {"Trades": 0, "Win%": 0, "PF": 0, "PnL_Rs": 0, "MaxDD_Rs": 0}
+    w, ls = t[t["R"] > 0], t[t["R"] <= 0]
+    pf = w["R"].sum() / abs(ls["R"].sum()) if len(ls) else 99
     eq = t.sort_values("ExitDate")["PnL_Rs"].cumsum()
-    return {"Trades": len(t), "Win%": round(len(wins) / len(t) * 100, 1),
-            "AvgRet%": round(t["Return%"].mean(), 2), "PF": round(pf, 2),
-            "PnL_Rs": int(t["PnL_Rs"].sum()), "MaxDD_Rs": int((eq - eq.cummax()).min()),
-            "AvgDays": round(t["Days"].mean(), 1)}
-
-
-def detail(name, t):
-    t = t[t["Reason"] != "Open"]
-    yr = t.groupby(pd.to_datetime(t["ExitDate"]).dt.year)["PnL_Rs"].agg(["count", "sum"])
-    return (f"\n=== BEST: {name} ===\n"
-            f"Exit reasons: {t['Reason'].value_counts().to_dict()}\n"
-            f"Saal-wise (trades, P&L Rs):\n{yr.to_string()}\n")
+    return {"Trades": len(t), "Win%": round(len(w) / len(t) * 100, 1), "PF": round(pf, 2),
+            "PnL_Rs": int(t["PnL_Rs"].sum()), "MaxDD_Rs": int((eq - eq.cummax()).min())}
 
 
 # ========================= 6. MAIN =========================
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     symbols = get_symbols()
-    print(f"{len(symbols)} stocks")
-    data = load_data(symbols)
-    start = pd.Timestamp.today().normalize() - pd.DateOffset(years=BACKTEST_YEARS)
+    data = load_data(symbols + [INDEX])
+    if INDEX not in data:
+        raise SystemExit("Nifty 50 data nahi mila, dobara chalao.")
+    nifty = nifty_ind(data[INDEX])
 
-    ind = {s: add_indicators(d) for s, d in data.items() if len(d) > 220}
-    report = [f"Backtest period: {start.date()} se aaj tak | Stocks: {len(ind)}",
-              f"Rules: entry = signal High ke upar, target = {REWARD_RISK}x risk, "
-              f"max {MAX_HOLD_DAYS} din, cost {COST_PCT}%, har trade Rs {RISK_PER_TRADE} risk\n"]
+    today = pd.Timestamp.today().normalize()
+    start = today - pd.DateOffset(years=BACKTEST_YEARS)
+    split = today - pd.DateOffset(months=TEST_MONTHS)
 
-    rows, all_trades = [], {}
-    for name, fn in SETUPS.items():
-        for sl_mode in SL_MODES:
-            tr = []
-            for s, d in ind.items():
-                tr += backtest(s, d, fn, start, sl_mode)
-            t = pd.DataFrame(tr)
-            key = f"{name} | SL={sl_mode}"
-            all_trades[key] = (t, fn, sl_mode)
-            rows.append({"Setup": key, **stats(t)})
+    ind = {s: add_indicators(d, nifty) for s, d in data.items()
+           if s != INDEX and len(d) > 220}
+    print(f"{len(ind)} stocks ready")
 
-    cmp_df = pd.DataFrame(rows).sort_values("PF", ascending=False)
+    # ---- Benchmark: agar sab stocks/Nifty simple kharid ke rakhte ----
+    def period_ret(df, a, b):
+        x = df["Close"][(df.index >= a) & (df.index <= b)]
+        return (x.iloc[-1] / x.iloc[0] - 1) * 100 if len(x) > 5 else np.nan
+    bench = {}
+    for name, a, b in [("2 saal", start, today), ("TRAIN", start, split), ("TEST", split, today)]:
+        bench[name] = (period_ret(nifty, a, b),
+                       np.nanmean([period_ret(d, a, b) for d in ind.values()]))
+    mkt_up = (nifty["Close"] > nifty["EMA200"])[nifty.index >= start].mean() * 100
+
+    # ---- 36 combinations ----
+    rows, store = [], {}
+    for setup in SETUPS:
+        for flt in FILTERS:
+            sigs = {s: get_signal(d, setup, flt) for s, d in ind.items()}
+            for sl in SLS:
+                for ex in EXITS:
+                    tr = []
+                    for s, d in ind.items():
+                        tr += trades_for_stock(s, d, sigs[s], start, sl, ex)
+                    t = apply_portfolio_limit(pd.DataFrame(tr))
+                    key = f"{setup} | {flt} | SL={sl} | {ex}"
+                    store[key] = t
+                    tr_t = t[t["EntryDate"] < split] if not t.empty else t
+                    te_t = t[t["EntryDate"] >= split] if not t.empty else t
+                    a, b, full = stats(tr_t), stats(te_t), stats(t)
+                    rows.append({"Combo": key,
+                                 "TrainTrades": a["Trades"], "TrainWin%": a["Win%"],
+                                 "TrainPF": a["PF"], "TrainPnL": a["PnL_Rs"],
+                                 "TestTrades": b["Trades"], "TestWin%": b["Win%"],
+                                 "TestPF": b["PF"], "TestPnL": b["PnL_Rs"],
+                                 "Full2yPnL": full["PnL_Rs"], "MaxDD": full["MaxDD_Rs"]})
+                    print("done:", key)
+
+    cmp_df = pd.DataFrame(rows).sort_values("TrainPF", ascending=False)
     cmp_df.to_csv(os.path.join(OUT_DIR, "comparison.csv"), index=False)
-    report.append("SAB SETUPS KA COMPARISON (PF = profit factor, 1.5+ achha):")
-    report.append(cmp_df.to_string(index=False))
 
-    ok = cmp_df[(cmp_df["Trades"] >= MIN_TRADES) & (cmp_df["PnL_Rs"] > 0)]
-    if ok.empty:
-        report.append(f"\nKoi setup {MIN_TRADES}+ trades ke saath profit mein nahi. Live mat lagao.")
-        best_key = cmp_df.iloc[0]["Setup"]
-    else:
-        best_key = ok.iloc[0]["Setup"]
-    best_t, best_fn, best_sl = all_trades[best_key]
-    if not best_t.empty:
-        best_t.sort_values("EntryDate").to_csv(os.path.join(OUT_DIR, "trades.csv"), index=False)
-        report.append(detail(best_key, best_t))
+    # ---- Best sirf TRAIN se chuno, TEST se jaancho ----
+    cand = cmp_df[cmp_df["TrainTrades"] >= MIN_TRAIN_TRADES]
+    best = cand.iloc[0] if not cand.empty else cmp_df.iloc[0]
+    passed = bool(best["TrainPnL"] > 0 and best["TestPnL"] > 0 and best["TestPF"] > 1.1)
+    best_key = best["Combo"]
+    bt = store[best_key]
+    if not bt.empty:
+        bt.sort_values("EntryDate").to_csv(os.path.join(OUT_DIR, "trades.csv"), index=False)
 
-    # Aaj ke signals (BEST setup se) -> kal ki list
-    today = []
-    for s, d in (ind.items() if not ok.empty else []):
-        if bool(best_fn(d).fillna(False).iloc[-1]):
-            r = d.iloc[-1]
-            sl = r["Low"] if best_sl == "candle" else r["LL5"]
-            entry = r["High"] * 1.001
-            risk = entry - sl
-            if risk <= 0 or risk / entry > 0.10:
+    rep = [f"Period: {start.date()} -> {today.date()} | Stocks: {len(ind)} | "
+           f"TRAIN: {start.date()}-{split.date()} | TEST: {split.date()}-{today.date()}",
+           f"Rules: max {MAX_POSITIONS} trades ek saath, Rs {RISK_PER_TRADE} risk/trade, cost {COST_PCT}%\n",
+           "MARKET KAISA THA (simple buy & hold):"]
+    for k, (nr, sr) in bench.items():
+        rep.append(f"  {k:7s}: Nifty 50 {nr:+.1f}% | Nifty 500 stocks avg {sr:+.1f}%")
+    rep.append(f"  Nifty 200 EMA ke upar tha: {mkt_up:.0f}% din\n")
+    rep.append("TOP 15 COMBINATIONS (TRAIN PF ke hisaab se):")
+    rep.append(cmp_df.head(15).to_string(index=False))
+    rep.append(f"\nBEST (train se chuna): {best_key}")
+    rep.append(f"  TRAIN: {best['TrainTrades']} trades, win {best['TrainWin%']}%, "
+               f"PF {best['TrainPF']}, P&L Rs {best['TrainPnL']:,}")
+    rep.append(f"  TEST : {best['TestTrades']} trades, win {best['TestWin%']}%, "
+               f"PF {best['TestPF']}, P&L Rs {best['TestPnL']:,}")
+    rep.append("  RESULT: " + ("PASS - test mein bhi profit" if passed else
+                               "FAIL - test mein profit nahi, live mat lagao"))
+    if not bt.empty:
+        rep.append(f"  Exit reasons: {bt['Reason'].value_counts().to_dict()}")
+
+    # ---- Kal ki list (sirf PASS hone par) ----
+    held = set()
+    if os.path.exists(OPEN_POS_FILE):
+        held = {x.strip().upper() for x in pd.read_csv(OPEN_POS_FILE).iloc[:, 0].dropna()}
+    setup, flt, sl_mode, ex = [x.strip() for x in best_key.split("|")]
+    sl_mode = sl_mode.replace("SL=", "")
+    rr = {"T1.5": 1.5, "T2": 2.0}.get(ex)
+    sig_rows = []
+    if passed:
+        for s, d in ind.items():
+            name = s.replace(".NS", "")
+            if name in held or not bool(get_signal(d, setup, flt).iloc[-1]):
                 continue
-            today.append({
-                "Stock": s.replace(".NS", ""), "Date": d.index[-1].date(),
-                "Close": round(r["Close"], 2), "BuyAbove": round(entry, 2),
-                "SL": round(sl, 2), "Target": round(entry + REWARD_RISK * risk, 2),
-                "Qty": int(RISK_PER_TRADE / risk), "RSI": round(r["RSI"], 1),
-                "VolX": round(r["Volume"] / r["VOLSMA20"], 1),
-            })
-    tl = pd.DataFrame(today)
+            r = d.iloc[-1]
+            entry = r["High"] * 1.001
+            sl = sl_price(r, entry, sl_mode)
+            risk = entry - sl
+            if risk <= 0 or risk / entry > MAX_SL_PCT:
+                continue
+            sig_rows.append({"Stock": name, "Date": d.index[-1].date(),
+                             "BuyAbove": round(entry, 2), "SL": round(sl, 2),
+                             "Target": round(entry + rr * risk, 2) if rr else "Trail EMA20",
+                             "Qty": int(RISK_PER_TRADE / risk), "VolX": round(r["VOLX"], 1)})
+    tl = pd.DataFrame(sig_rows)
     if not tl.empty:
-        tl = tl.sort_values("VolX", ascending=False)
+        tl = tl.sort_values("VolX", ascending=False).head(MAX_POSITIONS)
     tl.to_csv(os.path.join(OUT_DIR, "today_signals.csv"), index=False)
-    report.append(f"\nKAL ke liye stocks [{best_key}] ({len(tl)}):\n" +
-                  (tl.to_string(index=False) if not tl.empty else
-                   ("Aaj koi signal nahi." if not ok.empty else
-                    "Koi setup backtest mein profit mein nahi, isliye list nahi bheji.")))
+    rep.append(f"\nKAL ke liye stocks ({len(tl)}):")
+    rep.append(tl.to_string(index=False) if not tl.empty else
+               ("Aaj koi signal nahi." if passed else "Best setup test mein fail, list nahi bheji."))
 
-    text = "\n".join(report)
+    text = "\n".join(rep)
     print(text)
     with open(os.path.join(OUT_DIR, "summary.txt"), "w") as f:
         f.write(text)
 
-    # Telegram pe kal ki list (agar GitHub secrets set hain)
-    if tl.empty:
-        msg = (f"Swing Scanner {pd.Timestamp.today().date()}: aaj koi signal nahi."
-               if not ok.empty else "Swing Scanner: koi setup backtest mein profitable nahi. Trade mat lo.")
+    if not passed:
+        msg = "Swing Scanner: best setup TEST mein fail. Aaj trade mat lo."
+    elif tl.empty:
+        msg = f"Swing Scanner {today.date()}: aaj koi signal nahi."
     else:
-        lines = [f"{r.Stock}: Buy>{r.BuyAbove} SL {r.SL} Tgt {r.Target} Qty {r.Qty}"
-                 for r in tl.itertuples()]
-        msg = f"Swing Scanner - kal ke stocks ({len(tl)}):\n" + "\n".join(lines)
+        msg = f"Swing Scanner [{best_key}] kal ke stocks:\n" + "\n".join(
+            f"{r.Stock}: Buy>{r.BuyAbove} SL {r.SL} Tgt {r.Target} Qty {r.Qty}"
+            for r in tl.itertuples())
     send_telegram(msg)
 
 
 def send_telegram(msg):
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat = os.environ.get("TELEGRAM_CHAT_ID")
+    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat:
         return
     try:
