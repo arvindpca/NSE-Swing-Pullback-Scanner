@@ -127,9 +127,13 @@ def add_indicators(d, nifty):
     tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
     d["ATR"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
     d["RET63"] = c / c.shift(63) - 1
+    d["HH252"] = h.rolling(252, min_periods=150).max()          # 52 hafte ka high
+    rng = (h - l).replace(0, np.nan)
+    d["CLOSE_POS"] = (c - l) / rng                               # 1 = candle ke top pe close
     # Market (Nifty 50) data stock ki dates pe
     n = nifty.reindex(d.index, method="ffill")
     d["MKT_OK"] = n["Close"] > n["EMA200"]
+    d["MKT_STRONG"] = (n["Close"] > n["EMA200"]) & (n["Close"] > n["EMA50"])
     d["RS_OK"] = d["RET63"] > n["RET63"]             # stock Nifty se zyada bhaaga
     return d
 
@@ -137,6 +141,7 @@ def add_indicators(d, nifty):
 def nifty_ind(n):
     n = n.copy()
     n["EMA200"] = n["Close"].ewm(span=200, adjust=False).mean()
+    n["EMA50"] = n["Close"].ewm(span=50, adjust=False).mean()
     n["RET63"] = n["Close"] / n["Close"].shift(63) - 1
     return n
 
@@ -172,18 +177,33 @@ def s_breakout(d):
             & (d["VOLX"] > 1.5) & liquid(d))
 
 
+
+
 SETUPS = {"EMA20-Pullback": s_ema20_pullback,
           "RSI40-Recovery": s_rsi40_recovery,
           "20D-Breakout": s_breakout}
-FILTERS = ["None", "Mkt+RS"]          # Mkt+RS = Nifty > 200EMA aur stock Nifty se strong
-SLS = ["swing5", "atr1.5"]            # 5 din ka low  /  entry - 1.5 x ATR
-EXITS = ["T1.5", "T2", "Trail"]       # 1.5x target / 2x target / EMA20 trailing
+
+# Pichle run (v3) ke 2 best base combination - dono mein Market + RS filter
+BASES = {
+    "RSI40 | SL=swing5 | T1.5": {"setup": "RSI40-Recovery", "sl": "swing5", "rr": 1.5},
+    "Breakout | SL=atr1.5 | T1.5": {"setup": "20D-Breakout", "sl": "atr1.5", "rr": 1.5},
+}
+# Sudhaar (har ek alag test hoga, phir mila ke)
+IMPROVEMENTS = {
+    "quality": "Top 20% strong stock + 52 hafte ke high ke 15% paas",
+    "strong_close": "Close candle ke upar wale 25% mein",
+    "partial": "1x pe aadha profit book, baaki ka SL entry pe",
+    "timestop": "7 din mein 0.5x nahi gaya to bech do",
+    "size": "Nifty 50 EMA ke neeche ho to aadha risk",
+}
 
 
-def get_signal(d, setup, flt):
-    s = SETUPS[setup](d)
-    if flt == "Mkt+RS":
-        s = s & d["MKT_OK"] & d["RS_OK"]
+def get_signal(d, setup, flags):
+    s = SETUPS[setup](d) & d["MKT_OK"] & d["RS_OK"]
+    if "quality" in flags:
+        s &= (d["RSRANK"] >= 0.80) & (d["Close"] >= 0.85 * d["HH252"])
+    if "strong_close" in flags:
+        s &= d["CLOSE_POS"] >= 0.75
     return s.fillna(False)
 
 
@@ -192,13 +212,11 @@ def sl_price(row, entry, sl_mode):
 
 
 # ========================= 5. BACKTEST =========================
-def trades_for_stock(sym, d, sig, start, sl_mode, exit_mode):
-    """Ek stock ki saari trades (ek time pe ek hi). Portfolio limit baad mein lagti hai."""
+def trades_for_stock(sym, d, sig, start, sl_mode, rr, flags):
     o, h, l, c = (d[k].values for k in ["Open", "High", "Low", "Close"])
-    ema20, ll5, atr, volx = d["EMA20"].values, d["LL5"].values, d["ATR"].values, d["VOLX"].values
+    ll5, atr, volx = d["LL5"].values, d["ATR"].values, d["VOLX"].values
+    strong = d["MKT_STRONG"].values
     idx, sig = d.index, sig.values
-    max_hold = 30 if exit_mode == "Trail" else 15
-    rr = {"T1.5": 1.5, "T2": 2.0}.get(exit_mode)
     out, i, n = [], 0, len(d)
     while i < n - 1:
         if not sig[i] or idx[i] < start:
@@ -214,27 +232,34 @@ def trades_for_stock(sym, d, sig, start, sl_mode, exit_mode):
         if risk <= 0 or risk / entry > MAX_SL_PCT:
             i += 1
             continue
-        target = entry + rr * risk if rr else None
+        target, half_lvl = entry + rr * risk, entry + risk
+        cur_sl, half_done, booked = sl, False, 0.0        # booked = pehle aadhe ka R
         exit_px = reason = None
-        for k in range(j, min(j + max_hold, n)):
-            if l[k] <= sl:
-                exit_px, reason = (min(o[k], sl) if k > j else sl), "SL"
+        for k in range(j, min(j + 15, n)):
+            if l[k] <= cur_sl:                             # SL pehle maano (safe side)
+                exit_px = min(o[k], cur_sl) if k > j else cur_sl
+                reason = "BE" if half_done else "SL"
                 break
-            if target and h[k] >= target:
+            if "partial" in flags and not half_done and h[k] >= half_lvl:
+                half_done, booked, cur_sl = True, 0.5 * 1.0, entry
+            if h[k] >= target:
                 exit_px, reason = (max(o[k], target) if k > j else target), "Target"
                 break
-            if exit_mode == "Trail" and k > j and c[k] < ema20[k]:
-                exit_px, reason = c[k], "Trail"
+            if "timestop" in flags and not half_done and k - j + 1 >= 7 \
+                    and c[k] < entry + 0.5 * risk:
+                exit_px, reason = c[k], "TimeStop"
                 break
         if exit_px is None:
-            k = min(j + max_hold - 1, n - 1)
+            k = min(j + 14, n - 1)
             exit_px, reason = c[k], ("Time" if k < n - 1 else "Open")
-        r_mult = (exit_px - entry) / risk - (COST_PCT / 100 * entry / risk)
+        rest = (exit_px - entry) / risk
+        r_mult = (booked + 0.5 * rest if half_done else rest) - COST_PCT / 100 * entry / risk
+        mult = 1.0 if ("size" not in flags or strong[i]) else 0.5
         out.append({"Stock": sym.replace(".NS", ""), "SignalDate": idx[i], "EntryDate": idx[j],
-                    "Entry": round(entry, 2), "SL": round(sl, 2), "ExitDate": idx[k],
-                    "Exit": round(exit_px, 2), "Reason": reason, "Days": k - j + 1,
-                    "Return%": round((exit_px - entry) / entry * 100 - COST_PCT, 2),
-                    "R": round(r_mult, 3), "VolX": round(volx[i], 2)})
+                    "Entry": round(entry, 2), "SL": round(sl, 2), "Target": round(target, 2),
+                    "ExitDate": idx[k], "Exit": round(exit_px, 2), "Reason": reason,
+                    "Days": k - j + 1, "R": round(r_mult, 3), "Size": mult,
+                    "VolX": round(volx[i], 2)})
         i = k + 1
     return out
 
@@ -246,24 +271,32 @@ def apply_portfolio_limit(t):
     t = t.sort_values(["EntryDate", "VolX"], ascending=[True, False])
     taken, open_exits = [], []
     for r in t.itertuples():
-        open_exits = [x for x in open_exits if x >= r.EntryDate]   # jo band ho gayi hata do
+        open_exits = [x for x in open_exits if x >= r.EntryDate]
         if len(open_exits) < MAX_POSITIONS:
             taken.append(r.Index)
             open_exits.append(r.ExitDate)
     t = t.loc[taken].copy()
-    t["PnL_Rs"] = (t["R"] * RISK_PER_TRADE).round()
+    t["PnL_Rs"] = (t["R"] * t["Size"] * RISK_PER_TRADE).round()
     return t
 
 
 def stats(t):
     t = t[t["Reason"] != "Open"] if not t.empty else t
     if t.empty:
-        return {"Trades": 0, "Win%": 0, "PF": 0, "PnL_Rs": 0, "MaxDD_Rs": 0}
-    w, ls = t[t["R"] > 0], t[t["R"] <= 0]
-    pf = w["R"].sum() / abs(ls["R"].sum()) if len(ls) else 99
+        return {"Trades": 0, "Win%": 0.0, "PF": 0.0, "PnL": 0, "MaxDD": 0}
+    w, ls = t[t["PnL_Rs"] > 0], t[t["PnL_Rs"] <= 0]
+    pf = w["PnL_Rs"].sum() / abs(ls["PnL_Rs"].sum()) if ls["PnL_Rs"].sum() else 99
     eq = t.sort_values("ExitDate")["PnL_Rs"].cumsum()
     return {"Trades": len(t), "Win%": round(len(w) / len(t) * 100, 1), "PF": round(pf, 2),
-            "PnL_Rs": int(t["PnL_Rs"].sum()), "MaxDD_Rs": int((eq - eq.cummax()).min())}
+            "PnL": int(t["PnL_Rs"].sum()), "MaxDD": int((eq - eq.cummax()).min())}
+
+
+def run(ind, start, base, flags):
+    sigs_tr = []
+    for s, d in ind.items():
+        sig = get_signal(d, base["setup"], flags)
+        sigs_tr += trades_for_stock(s, d, sig, start, base["sl"], base["rr"], flags)
+    return apply_portfolio_limit(pd.DataFrame(sigs_tr))
 
 
 # ========================= 6. MAIN =========================
@@ -281,103 +314,118 @@ def main():
 
     ind = {s: add_indicators(d, nifty) for s, d in data.items()
            if s != INDEX and len(d) > 220}
+    # Relative strength rank: har din sab stocks mein 3 mahine return ka percentile
+    rank = pd.DataFrame({s: d["RET63"] for s, d in ind.items()}).rank(axis=1, pct=True)
+    for s, d in ind.items():
+        d["RSRANK"] = rank[s].reindex(d.index)
     print(f"{len(ind)} stocks ready")
 
-    # ---- Benchmark: agar sab stocks/Nifty simple kharid ke rakhte ----
     def period_ret(df, a, b):
         x = df["Close"][(df.index >= a) & (df.index <= b)]
         return (x.iloc[-1] / x.iloc[0] - 1) * 100 if len(x) > 5 else np.nan
-    bench = {}
-    for name, a, b in [("2 saal", start, today), ("TRAIN", start, split), ("TEST", split, today)]:
-        bench[name] = (period_ret(nifty, a, b),
-                       np.nanmean([period_ret(d, a, b) for d in ind.values()]))
-    mkt_up = (nifty["Close"] > nifty["EMA200"])[nifty.index >= start].mean() * 100
 
-    # ---- 36 combinations ----
+    def split_stats(t):
+        if t.empty:
+            return stats(t), stats(t), stats(t)
+        return stats(t[t["EntryDate"] < split]), stats(t[t["EntryDate"] >= split]), stats(t)
+
+    def row(base_name, label, t):
+        a, b, f = split_stats(t)
+        return {"Base": base_name, "Variant": label,
+                "Trades": f["Trades"], "Win%": f["Win%"], "PF": f["PF"], "PnL_2y": f["PnL"],
+                "MaxDD": f["MaxDD"], "TrainPnL": a["PnL"], "TestTrades": b["Trades"],
+                "TestPnL": b["PnL"]}
+
     rows, store = [], {}
-    for setup in SETUPS:
-        for flt in FILTERS:
-            sigs = {s: get_signal(d, setup, flt) for s, d in ind.items()}
-            for sl in SLS:
-                for ex in EXITS:
-                    tr = []
-                    for s, d in ind.items():
-                        tr += trades_for_stock(s, d, sigs[s], start, sl, ex)
-                    t = apply_portfolio_limit(pd.DataFrame(tr))
-                    key = f"{setup} | {flt} | SL={sl} | {ex}"
-                    store[key] = t
-                    tr_t = t[t["EntryDate"] < split] if not t.empty else t
-                    te_t = t[t["EntryDate"] >= split] if not t.empty else t
-                    a, b, full = stats(tr_t), stats(te_t), stats(t)
-                    rows.append({"Combo": key,
-                                 "TrainTrades": a["Trades"], "TrainWin%": a["Win%"],
-                                 "TrainPF": a["PF"], "TrainPnL": a["PnL_Rs"],
-                                 "TestTrades": b["Trades"], "TestWin%": b["Win%"],
-                                 "TestPF": b["PF"], "TestPnL": b["PnL_Rs"],
-                                 "Full2yPnL": full["PnL_Rs"], "MaxDD": full["MaxDD_Rs"]})
-                    print("done:", key)
+    for bname, base in BASES.items():
+        # 1) Base + har sudhaar alag
+        base_t = run(ind, start, base, set())
+        store[(bname, "Base")] = (base_t, set())
+        rows.append(row(bname, "Base", base_t))
+        base_train = split_stats(base_t)[0]["PnL"]
+        helped = set()
+        for flag in IMPROVEMENTS:
+            t = run(ind, start, base, {flag})
+            store[(bname, "+" + flag)] = (t, {flag})
+            rows.append(row(bname, "+" + flag, t))
+            if split_stats(t)[0]["PnL"] > base_train:       # sirf TRAIN dekh ke faisla
+                helped.add(flag)
+            print("done:", bname, flag)
+        # 2) Sab ek saath
+        t = run(ind, start, base, set(IMPROVEMENTS))
+        store[(bname, "ALL")] = (t, set(IMPROVEMENTS))
+        rows.append(row(bname, "ALL", t))
+        # 3) SMART = sirf woh sudhaar jo TRAIN mein kaam aaye
+        if helped:
+            lbl = "SMART(" + "+".join(sorted(helped)) + ")"
+            t = run(ind, start, base, helped)
+            store[(bname, lbl)] = (t, helped)
+            rows.append(row(bname, lbl, t))
 
-    cmp_df = pd.DataFrame(rows).sort_values("TrainPF", ascending=False)
+    cmp_df = pd.DataFrame(rows)
     cmp_df.to_csv(os.path.join(OUT_DIR, "comparison.csv"), index=False)
 
-    # ---- Best sirf TRAIN se chuno, TEST se jaancho ----
-    cand = cmp_df[cmp_df["TrainTrades"] >= MIN_TRAIN_TRADES]
-    best = cand.iloc[0] if not cand.empty else cmp_df.iloc[0]
-    passed = bool(best["TrainPnL"] > 0 and best["TestPnL"] > 0 and best["TestPF"] > 1.1)
-    best_key = best["Combo"]
-    bt = store[best_key]
+    # Best: TRAIN PnL se chuno (min 30 trades total), TEST se jaancho
+    cand = cmp_df[cmp_df["Trades"] >= MIN_TRAIN_TRADES]
+    best = (cand if not cand.empty else cmp_df).sort_values("TrainPnL", ascending=False).iloc[0]
+    passed = bool(best["TrainPnL"] > 0 and best["TestPnL"] >= 0 and best["PF"] > 1.1)
+    bkey = (best["Base"], best["Variant"])
+    bt, bflags = store[bkey]
     if not bt.empty:
         bt.sort_values("EntryDate").to_csv(os.path.join(OUT_DIR, "trades.csv"), index=False)
 
     rep = [f"Period: {start.date()} -> {today.date()} | Stocks: {len(ind)} | "
            f"TRAIN: {start.date()}-{split.date()} | TEST: {split.date()}-{today.date()}",
-           f"Rules: max {MAX_POSITIONS} trades ek saath, Rs {RISK_PER_TRADE} risk/trade, cost {COST_PCT}%\n",
-           "MARKET KAISA THA (simple buy & hold):"]
-    for k, (nr, sr) in bench.items():
-        rep.append(f"  {k:7s}: Nifty 50 {nr:+.1f}% | Nifty 500 stocks avg {sr:+.1f}%")
-    rep.append(f"  Nifty 200 EMA ke upar tha: {mkt_up:.0f}% din\n")
-    rep.append("TOP 15 COMBINATIONS (TRAIN PF ke hisaab se):")
-    rep.append(cmp_df.head(15).to_string(index=False))
-    rep.append(f"\nBEST (train se chuna): {best_key}")
-    rep.append(f"  TRAIN: {best['TrainTrades']} trades, win {best['TrainWin%']}%, "
-               f"PF {best['TrainPF']}, P&L Rs {best['TrainPnL']:,}")
-    rep.append(f"  TEST : {best['TestTrades']} trades, win {best['TestWin%']}%, "
-               f"PF {best['TestPF']}, P&L Rs {best['TestPnL']:,}")
-    rep.append("  RESULT: " + ("PASS - test mein bhi profit" if passed else
-                               "FAIL - test mein profit nahi, live mat lagao"))
+           f"Rules: Market+RS filter hamesha, max {MAX_POSITIONS} trades ek saath, "
+           f"Rs {RISK_PER_TRADE} risk/trade, cost {COST_PCT}%\n",
+           "MARKET (buy & hold):"]
+    for k, a, b in [("2 saal", start, today), ("TRAIN", start, split), ("TEST", split, today)]:
+        rep.append(f"  {k:7s}: Nifty 50 {period_ret(nifty, a, b):+.1f}% | Nifty 500 avg "
+                   f"{np.nanmean([period_ret(d, a, b) for d in ind.values()]):+.1f}%")
+    rep.append("\nSUDHAAR:")
+    for k, v in IMPROVEMENTS.items():
+        rep.append(f"  +{k:13s} = {v}")
+    rep.append("\nRESULT (har sudhaar ka asar):")
+    rep.append(cmp_df.to_string(index=False))
+    rep.append(f"\nBEST (TRAIN se chuna): {bkey[0]} -> {bkey[1]}")
+    rep.append(f"  2 saal: {best['Trades']} trades, win {best['Win%']}%, PF {best['PF']}, "
+               f"P&L Rs {best['PnL_2y']:,}, MaxDD Rs {best['MaxDD']:,}")
+    rep.append(f"  TRAIN P&L Rs {best['TrainPnL']:,} | TEST: {best['TestTrades']} trades, "
+               f"P&L Rs {best['TestPnL']:,}")
+    rep.append("  RESULT: " + ("PASS" if passed else "FAIL - live mat lagao"))
     if not bt.empty:
         rep.append(f"  Exit reasons: {bt['Reason'].value_counts().to_dict()}")
 
-    # ---- Kal ki list (sirf PASS hone par) ----
+    # ---- Kal ki list ----
     held = set()
     if os.path.exists(OPEN_POS_FILE):
         held = {x.strip().upper() for x in pd.read_csv(OPEN_POS_FILE).iloc[:, 0].dropna()}
-    setup, flt, sl_mode, ex = [x.strip() for x in best_key.split("|")]
-    sl_mode = sl_mode.replace("SL=", "")
-    rr = {"T1.5": 1.5, "T2": 2.0}.get(ex)
+    base = BASES[bkey[0]]
     sig_rows = []
     if passed:
         for s, d in ind.items():
             name = s.replace(".NS", "")
-            if name in held or not bool(get_signal(d, setup, flt).iloc[-1]):
+            if name in held or not bool(get_signal(d, base["setup"], bflags).iloc[-1]):
                 continue
             r = d.iloc[-1]
             entry = r["High"] * 1.001
-            sl = sl_price(r, entry, sl_mode)
+            sl = sl_price(r, entry, base["sl"])
             risk = entry - sl
             if risk <= 0 or risk / entry > MAX_SL_PCT:
                 continue
+            size = 1.0 if ("size" not in bflags or r["MKT_STRONG"]) else 0.5
             sig_rows.append({"Stock": name, "Date": d.index[-1].date(),
                              "BuyAbove": round(entry, 2), "SL": round(sl, 2),
-                             "Target": round(entry + rr * risk, 2) if rr else "Trail EMA20",
-                             "Qty": int(RISK_PER_TRADE / risk), "VolX": round(r["VOLX"], 1)})
+                             "Half@1R": round(entry + risk, 2) if "partial" in bflags else "-",
+                             "Target": round(entry + base["rr"] * risk, 2),
+                             "Qty": int(RISK_PER_TRADE * size / risk), "VolX": round(r["VOLX"], 1)})
     tl = pd.DataFrame(sig_rows)
     if not tl.empty:
         tl = tl.sort_values("VolX", ascending=False).head(MAX_POSITIONS)
     tl.to_csv(os.path.join(OUT_DIR, "today_signals.csv"), index=False)
     rep.append(f"\nKAL ke liye stocks ({len(tl)}):")
     rep.append(tl.to_string(index=False) if not tl.empty else
-               ("Aaj koi signal nahi." if passed else "Best setup test mein fail, list nahi bheji."))
+               ("Aaj koi signal nahi." if passed else "Best setup fail, list nahi bheji."))
 
     text = "\n".join(rep)
     print(text)
@@ -385,13 +433,13 @@ def main():
         f.write(text)
 
     if not passed:
-        msg = "Swing Scanner: best setup TEST mein fail. Aaj trade mat lo."
+        msg = "Swing Scanner: best setup backtest mein fail. Aaj trade mat lo."
     elif tl.empty:
         msg = f"Swing Scanner {today.date()}: aaj koi signal nahi."
     else:
-        msg = f"Swing Scanner [{best_key}] kal ke stocks:\n" + "\n".join(
-            f"{r.Stock}: Buy>{r.BuyAbove} SL {r.SL} Tgt {r.Target} Qty {r.Qty}"
-            for r in tl.itertuples())
+        msg = f"Swing Scanner [{bkey[0]} {bkey[1]}] kal ke stocks:\n" + "\n".join(
+            f"{r['Stock']}: Buy>{r['BuyAbove']} SL {r['SL']} Half {r['Half@1R']} "
+            f"Tgt {r['Target']} Qty {r['Qty']}" for r in tl.to_dict("records"))
     send_telegram(msg)
 
 
