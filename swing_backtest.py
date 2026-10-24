@@ -292,7 +292,7 @@ def main():
 
     # Aaj ke signals (BEST setup se) -> kal ki list
     today = []
-    for s, d in ind.items():
+    for s, d in (ind.items() if not ok.empty else []):
         if bool(best_fn(d).fillna(False).iloc[-1]):
             r = d.iloc[-1]
             sl = r["Low"] if best_sl == "candle" else r["LL5"]
@@ -312,7 +312,9 @@ def main():
         tl = tl.sort_values("VolX", ascending=False)
     tl.to_csv(os.path.join(OUT_DIR, "today_signals.csv"), index=False)
     report.append(f"\nKAL ke liye stocks [{best_key}] ({len(tl)}):\n" +
-                  (tl.to_string(index=False) if not tl.empty else "Aaj koi signal nahi."))
+                  (tl.to_string(index=False) if not tl.empty else
+                   ("Aaj koi signal nahi." if not ok.empty else
+                    "Koi setup backtest mein profit mein nahi, isliye list nahi bheji.")))
 
     text = "\n".join(report)
     print(text)
@@ -321,7 +323,8 @@ def main():
 
     # Telegram pe kal ki list (agar GitHub secrets set hain)
     if tl.empty:
-        msg = f"Swing Scanner {pd.Timestamp.today().date()}: aaj koi signal nahi."
+        msg = (f"Swing Scanner {pd.Timestamp.today().date()}: aaj koi signal nahi."
+               if not ok.empty else "Swing Scanner: koi setup backtest mein profitable nahi. Trade mat lo.")
     else:
         lines = [f"{r.Stock}: Buy>{r.BuyAbove} SL {r.SL} Tgt {r.Target} Qty {r.Qty}"
                  for r in tl.itertuples()]
