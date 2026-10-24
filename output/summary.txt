@@ -1,35 +1,42 @@
 Period: 2024-10-24 -> 2026-10-24 | Stocks: 489 | TRAIN: 2024-10-24-2026-04-24 | TEST: 2026-04-24-2026-10-24
-Rules: max 5 trades ek saath, Rs 1000 risk/trade, cost 0.2%
+Rules: Market+RS filter hamesha, max 5 trades ek saath, Rs 1000 risk/trade, cost 0.2%
 
-MARKET KAISA THA (simple buy & hold):
-  2 saal : Nifty 50 -7.4% | Nifty 500 stocks avg +12.1%
-  TRAIN  : Nifty 50 -2.1% | Nifty 500 stocks avg +10.7%
-  TEST   : Nifty 50 -5.4% | Nifty 500 stocks avg -2.5%
-  Nifty 200 EMA ke upar tha: 55% din
+MARKET (buy & hold):
+  2 saal : Nifty 50 -7.4% | Nifty 500 avg +12.1%
+  TRAIN  : Nifty 50 -2.1% | Nifty 500 avg +10.7%
+  TEST   : Nifty 50 -5.4% | Nifty 500 avg -2.5%
 
-TOP 15 COMBINATIONS (TRAIN PF ke hisaab se):
-                                      Combo  TrainTrades  TrainWin%  TrainPF  TrainPnL  TestTrades  TestWin%  TestPF  TestPnL  Full2yPnL  MaxDD
- RSI40-Recovery | Mkt+RS | SL=swing5 | T1.5           79       49.4     1.24      8330           4       0.0    0.00    -2764       5566  -9068
-    20D-Breakout | None | SL=swing5 | Trail          106       35.8     1.22      8026          37      32.4    0.51    -8652       -626 -10277
-   RSI40-Recovery | Mkt+RS | SL=swing5 | T2           78       44.9     1.15      5292           4       0.0    0.00    -2764       2528 -14625
-       20D-Breakout | None | SL=swing5 | T2          129       48.8     1.14      6888          46      32.6    0.39   -14507      -7619 -22512
-   20D-Breakout | Mkt+RS | SL=atr1.5 | T1.5          184       45.7     1.13     13116          15      33.3    0.72    -2870      10246 -20133
- RSI40-Recovery | Mkt+RS | SL=atr1.5 | T1.5           89       47.2     1.11      4823           4       0.0    0.00    -2279       2544 -12964
-     20D-Breakout | None | SL=swing5 | T1.5          133       50.4     1.11      5497          47      34.0    0.52   -10705      -5208 -15923
-    20D-Breakout | None | SL=atr1.5 | Trail          140       30.7     1.08      7560          52      25.0    0.67   -11984      -4424 -26464
-     20D-Breakout | Mkt+RS | SL=atr1.5 | T2          166       42.2     1.06      6193          14      28.6    0.24    -7053       -860 -25012
-     20D-Breakout | Mkt+RS | SL=swing5 | T2          107       45.8     1.04      1877          11      18.2    0.11    -5188      -3311 -10787
-   20D-Breakout | Mkt+RS | SL=swing5 | T1.5          112       48.2     0.99      -351          11      18.2    0.11    -5188      -5539 -10463
-   RSI40-Recovery | Mkt+RS | SL=atr1.5 | T2           88       39.8     0.94     -2904           4       0.0    0.00    -2279      -5183 -18107
-   RSI40-Recovery | None | SL=swing5 | T1.5          142       43.7     0.90     -6879          51      31.4    0.49   -15392     -22271 -27947
-     20D-Breakout | None | SL=atr1.5 | T1.5          248       40.3     0.90    -15192          95      32.6    0.69   -19971     -35163 -38409
-EMA20-Pullback | Mkt+RS | SL=atr1.5 | Trail          132       23.5     0.87     -9934          11      27.3    0.28    -5360     -15294 -18536
+SUDHAAR:
+  +quality       = Top 20% strong stock + 52 hafte ke high ke 15% paas
+  +strong_close  = Close candle ke upar wale 25% mein
+  +partial       = 1x pe aadha profit book, baaki ka SL entry pe
+  +timestop      = 7 din mein 0.5x nahi gaya to bech do
+  +size          = Nifty 50 EMA ke neeche ho to aadha risk
 
-BEST (train se chuna): RSI40-Recovery | Mkt+RS | SL=swing5 | T1.5
-  TRAIN: 79 trades, win 49.4%, PF 1.24, P&L Rs 8,330
-  TEST : 4 trades, win 0.0%, PF 0.0, P&L Rs -2,764
-  RESULT: FAIL - test mein profit nahi, live mat lagao
-  Exit reasons: {'SL': 30, 'Time': 29, 'Target': 24}
+RESULT (har sudhaar ka asar):
+                       Base              Variant  Trades  Win%   PF  PnL_2y  MaxDD  TrainPnL  TestTrades  TestPnL
+   RSI40 | SL=swing5 | T1.5                 Base      83  47.0 1.15    5566  -9068      8330           4    -2764
+   RSI40 | SL=swing5 | T1.5             +quality      19  52.6 1.38    3168  -5233      3168           0        0
+   RSI40 | SL=swing5 | T1.5        +strong_close      74  47.3 1.06    2058  -9318      4822           4    -2764
+   RSI40 | SL=swing5 | T1.5             +partial      84  52.4 1.04    1218 -10802      3982           4    -2764
+   RSI40 | SL=swing5 | T1.5            +timestop      94  48.9 1.25    8387  -6199     10113           4    -1726
+   RSI40 | SL=swing5 | T1.5                +size      83  47.0 1.25    6731  -4860      9495           4    -2764
+   RSI40 | SL=swing5 | T1.5                  ALL      17  52.9 0.88    -542  -4176      -542           0        0
+   RSI40 | SL=swing5 | T1.5 SMART(size+timestop)      94  48.9 1.41    9942  -4508     11668           4    -1726
+Breakout | SL=atr1.5 | T1.5                 Base     199  44.7 1.09   10246 -20133     13116          15    -2870
+Breakout | SL=atr1.5 | T1.5             +quality     172  50.0 1.30   26009 -15236     25315          10      694
+Breakout | SL=atr1.5 | T1.5        +strong_close     192  43.2 1.03    3124 -22980      7456          14    -4332
+Breakout | SL=atr1.5 | T1.5             +partial     222  48.6 0.88  -14079 -24646    -10697          15    -3382
+Breakout | SL=atr1.5 | T1.5            +timestop     252  45.6 0.93   -8990 -18586     -3294          16    -5696
+Breakout | SL=atr1.5 | T1.5                +size     199  44.7 1.07    6377 -18105      9247          15    -2870
+Breakout | SL=atr1.5 | T1.5                  ALL     201  51.7 0.98   -1201 -14000     -3245          10     2044
+Breakout | SL=atr1.5 | T1.5       SMART(quality)     172  50.0 1.30   26009 -15236     25315          10      694
+
+BEST (TRAIN se chuna): Breakout | SL=atr1.5 | T1.5 -> SMART(quality)
+  2 saal: 172 trades, win 50.0%, PF 1.3, P&L Rs 26,009, MaxDD Rs -15,236
+  TRAIN P&L Rs 25,315 | TEST: 10 trades, P&L Rs 694
+  RESULT: PASS
+  Exit reasons: {'SL': 73, 'Target': 70, 'Time': 29}
 
 KAL ke liye stocks (0):
-Best setup test mein fail, list nahi bheji.
+Aaj koi signal nahi.
