@@ -1,10 +1,10 @@
-Period: 2024-10-27 -> 2026-10-27 | Stocks: 489 | TRAIN: 2024-10-27-2026-04-27 | TEST: 2026-04-27-2026-10-27
+Period: 2024-10-28 -> 2026-10-28 | Stocks: 489 | TRAIN: 2024-10-28-2026-04-28 | TEST: 2026-04-28-2026-10-28
 Rules: Market+RS filter hamesha, max 5 trades ek saath, Rs 1000 risk/trade, cost 0.2%
 
 MARKET (buy & hold):
-  2 saal : Nifty 50 -6.5% | Nifty 500 avg +16.5%
-  TRAIN  : Nifty 50 -1.0% | Nifty 500 avg +13.5%
-  TEST   : Nifty 50 -5.6% | Nifty 500 avg -1.8%
+  2 saal : Nifty 50 -6.7% | Nifty 500 avg +16.6%
+  TRAIN  : Nifty 50 -1.4% | Nifty 500 avg +13.4%
+  TEST   : Nifty 50 -5.4% | Nifty 500 avg -1.6%
 
 SUDHAAR:
   +consol        = Breakout se pehle 20 din range 15% ke andar (shaant phase)
