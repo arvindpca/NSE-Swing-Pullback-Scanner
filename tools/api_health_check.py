@@ -44,7 +44,9 @@ def env(name: str) -> str:
 
 def http(url: str, *, data: bytes | None = None, headers: dict | None = None,
          method: str | None = None, timeout: int = 20) -> tuple[int, str]:
-    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    hdrs = {"User-Agent": "Mozilla/5.0 (api-health-check)"}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read().decode("utf-8", "replace")
@@ -53,6 +55,8 @@ def http(url: str, *, data: bytes | None = None, headers: dict | None = None,
 
 
 def looks_like_auth_problem(code: int, body: str) -> bool:
+    if "error code: 10" in body.lower():  # Cloudflare block, key ki galti nahi
+        return False
     if code in (401, 403):
         return True
     low = body.lower()
