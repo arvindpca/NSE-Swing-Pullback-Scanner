@@ -1,0 +1,9 @@
+{
+ "daily": [
+  {
+   "wf": "scan.yml",
+   "by": "16:50",
+   "label": "Swing Scanner"
+  }
+ ]
+}

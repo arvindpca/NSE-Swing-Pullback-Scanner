@@ -1,0 +1,46 @@
+name: Watchdog (bot ruka to Telegram alert)
+
+# Har ~20 min check: (1) koi bhi workflow fail hua?  (2) koi bot time par chala ya chup ho gaya?
+# Kuch galat ho to Telegram par link ke saath alert.  Settings: tools/watchdog_config.json
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7,27,47 * * * *"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools
+            .github
+      - name: Restore watchdog memory
+        uses: actions/cache/restore@v4
+        with:
+          path: .watchdog
+          key: watchdog-state-${{ github.run_id }}
+          restore-keys: watchdog-state-
+      - name: Check bots
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 tools/watchdog.py
+      - name: Save watchdog memory
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .watchdog
+          key: watchdog-state-${{ github.run_id }}
