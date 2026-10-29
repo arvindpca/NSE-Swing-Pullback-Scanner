@@ -1,10 +1,10 @@
 Base,Variant,Trades,Win%,PF,PnL_2y,MaxDD,TrainPnL,TestTrades,TestPnL
-Breakout+Quality | SL=atr1.5 | T1.5,Base,170,50.0,1.32,27154,-15236,26460,10,694
-Breakout+Quality | SL=atr1.5 | T1.5,+consol,137,46.0,1.11,8212,-12629,5033,10,3179
+Breakout+Quality | SL=atr1.5 | T1.5,Base,169,49.7,1.31,25692,-15236,24998,10,694
+Breakout+Quality | SL=atr1.5 | T1.5,+consol,136,45.6,1.09,6750,-12629,3571,10,3179
 Breakout+Quality | SL=atr1.5 | T1.5,+no_resist,141,52.5,1.46,29447,-6564,27725,9,1722
-Breakout+Quality | SL=atr1.5 | T1.5,+bo_sl,240,41.7,0.94,-9493,-25416,-11063,13,1570
-Breakout+Quality | SL=atr1.5 | T1.5,+no_chase,141,45.4,1.01,639,-10114,-2532,8,3171
-Breakout+Quality | SL=atr1.5 | T1.5,+sector,158,48.1,1.28,21718,-11969,21024,10,694
-Breakout+Quality | SL=atr1.5 | T1.5,+adx,156,48.1,1.22,17615,-9268,19854,8,-2239
+Breakout+Quality | SL=atr1.5 | T1.5,+bo_sl,239,41.8,0.94,-8416,-26870,-9986,13,1570
+Breakout+Quality | SL=atr1.5 | T1.5,+no_chase,140,45.0,0.99,-823,-10114,-3994,8,3171
+Breakout+Quality | SL=atr1.5 | T1.5,+sector,157,47.8,1.26,20256,-11969,19562,10,694
+Breakout+Quality | SL=atr1.5 | T1.5,+adx,155,47.7,1.2,16153,-9268,18392,8,-2239
 Breakout+Quality | SL=atr1.5 | T1.5,ALL,64,39.1,0.86,-5511,-14522,-4846,6,-665
 Breakout+Quality | SL=atr1.5 | T1.5,SMART(no_resist),141,52.5,1.46,29447,-6564,27725,9,1722
