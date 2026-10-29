@@ -496,13 +496,14 @@ def main():
 def send_telegram(msg):
     token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat:
+        print("::warning::TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secret set nahi hai - message nahi gaya")
         return
     try:
         data = urllib.parse.urlencode({"chat_id": chat, "text": msg[:4000]}).encode()
         urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout=20)
         print("Telegram bheja.")
-    except Exception as e:
-        print("Telegram fail:", e)
+    except Exception as e:  # URL me token hota hai, isliye sirf error type
+        print(f"::warning::Telegram fail: {type(e).__name__} {getattr(e, 'code', '')}")
 
 
 if __name__ == "__main__":
