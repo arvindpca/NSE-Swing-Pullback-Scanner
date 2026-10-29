@@ -1,0 +1,46 @@
+name: Bot Stopped Alert (Telegram)
+
+# Jab bhi koi bot workflow FAIL ho jaye (error / timeout), Telegram par turant message aata hai,
+# run ka link ke saath.  (Cancel kiye gaye runs par message nahi aata.)
+
+on:
+  workflow_run:
+    workflows:
+      - "Swing Scanner + Backtest"
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    if: ${{ contains(fromJSON('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Telegram alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          WF_RESULT: ${{ github.event.workflow_run.conclusion }}
+          WF_URL: ${{ github.event.workflow_run.html_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          e = os.environ
+          text = (f"🛑 BOT RUK GAYA - {e['REPO'].split('/')[-1]}\n"
+                  f"Workflow: {e['WF_NAME']}\n"
+                  f"Result: {e['WF_RESULT']}\n\n"
+                  f"Error dekho: {e['WF_URL']}\n"
+                  f"API key expire hui ho to yahan update karo: "
+                  f"https://github.com/{e['REPO']}/settings/secrets/actions")
+          req = urllib.request.Request(
+              f"https://api.telegram.org/bot{e['TELEGRAM_BOT_TOKEN']}/sendMessage",
+              data=json.dumps({"chat_id": e["TELEGRAM_CHAT_ID"], "text": text,
+                               "disable_web_page_preview": True}).encode(),
+              headers={"Content-Type": "application/json"})
+          urllib.request.urlopen(req, timeout=20)
+          print("alert sent")
+          PY
