@@ -58,6 +58,14 @@ def ist_at(day: datetime, s: str) -> datetime:
 
 
 def send_telegram(text: str) -> bool:
+    for attempt in range(3):
+        if _send_once(text):
+            return True
+        time.sleep(5 * (attempt + 1))
+    return False
+
+
+def _send_once(text: str) -> bool:
     tok, chat = os.getenv("TELEGRAM_BOT_TOKEN", "").strip(), os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if not tok or not chat:
         print("Telegram secrets missing")
@@ -68,7 +76,10 @@ def send_telegram(text: str) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return r.status == 200
-    except Exception as e:  # never print the URL (has the token)
+    except urllib.error.HTTPError as e:  # never print the URL (has the token)
+        print(f"Telegram send failed: HTTP {e.code} {e.read()[:200]!r}")
+        return False
+    except Exception as e:
         print(f"Telegram send failed: {type(e).__name__}")
         return False
 
@@ -194,6 +205,7 @@ def check_daily(rule: dict, state: dict, now: datetime) -> str | None:
 def main() -> int:
     now = datetime.now(timezone.utc)
     state = load_state()
+    before = json.loads(json.dumps(state))  # alert na jaye to yaad rakho ki bhejna baaki hai
     cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
     msgs: list[str] = []
     try:
@@ -222,9 +234,11 @@ def main() -> int:
         print(m.replace("\n", " | "))
     if msgs:
         text = f"⚠️ WATCHDOG - {REPO_NAME}\n\n" + "\n\n".join(msgs)
+        if len(text) > 3900:
+            text = text[:3900] + "\n... (aur bhi - GitHub Actions dekho)"
         if not send_telegram(text):
-            save_state(state)
-            print("::error::Telegram alert nahi gaya")
+            save_state(before)  # agle run me dobara try hoga
+            print("::error::Telegram alert nahi gaya (agle run me dobara try hoga)")
             return 1
     else:
         print("Sab bots theek chal rahe hain ✅")
