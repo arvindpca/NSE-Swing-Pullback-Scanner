@@ -1,10 +1,10 @@
-Period: 2024-10-29 -> 2026-10-29 | Stocks: 489 | TRAIN: 2024-10-29-2026-04-29 | TEST: 2026-04-29-2026-10-29
+Period: 2024-10-30 -> 2026-10-30 | Stocks: 489 | TRAIN: 2024-10-30-2026-04-30 | TEST: 2026-04-30-2026-10-30
 Rules: Market+RS filter hamesha, max 5 trades ek saath, Rs 1000 risk/trade, cost 0.2%
 
 MARKET (buy & hold):
-  2 saal : Nifty 50 -6.3% | Nifty 500 avg +16.3%
-  TRAIN  : Nifty 50 -1.2% | Nifty 500 avg +12.8%
-  TEST   : Nifty 50 -5.1% | Nifty 500 avg -1.1%
+  2 saal : Nifty 50 -5.3% | Nifty 500 avg +13.4%
+  TRAIN  : Nifty 50 -1.4% | Nifty 500 avg +10.7%
+  TEST   : Nifty 50 -3.9% | Nifty 500 avg -2.0%
 
 SUDHAAR:
   +consol        = Breakout se pehle 20 din range 15% ke andar (shaant phase)
@@ -16,21 +16,21 @@ SUDHAAR:
 
 RESULT (har sudhaar ka asar):
                                Base          Variant  Trades  Win%   PF  PnL_2y  MaxDD  TrainPnL  TestTrades  TestPnL
-Breakout+Quality | SL=atr1.5 | T1.5             Base     169  49.7 1.31   25692 -15236     24998          10      694
+Breakout+Quality | SL=atr1.5 | T1.5             Base     167  50.3 1.34   27333 -15236     26639          10      694
 Breakout+Quality | SL=atr1.5 | T1.5          +consol     136  45.6 1.09    6750 -12629      3571          10     3179
-Breakout+Quality | SL=atr1.5 | T1.5       +no_resist     141  52.5 1.46   29447  -6564     27725           9     1722
-Breakout+Quality | SL=atr1.5 | T1.5           +bo_sl     239  41.8 0.94   -8416 -26870     -9986          13     1570
+Breakout+Quality | SL=atr1.5 | T1.5       +no_resist     140  52.9 1.48   30471  -6564     28749           9     1722
+Breakout+Quality | SL=atr1.5 | T1.5           +bo_sl     236  41.9 0.95   -7802 -27236     -9372          13     1570
 Breakout+Quality | SL=atr1.5 | T1.5        +no_chase     140  45.0 0.99    -823 -10114     -3994           8     3171
-Breakout+Quality | SL=atr1.5 | T1.5          +sector     157  47.8 1.26   20256 -11969     19562          10      694
-Breakout+Quality | SL=atr1.5 | T1.5             +adx     155  47.7 1.20   16153  -9268     18392           8    -2239
+Breakout+Quality | SL=atr1.5 | T1.5          +sector     155  47.7 1.25   18962 -11969     18268          10      694
+Breakout+Quality | SL=atr1.5 | T1.5             +adx     153  48.4 1.22   17342  -9268     19581           8    -2239
 Breakout+Quality | SL=atr1.5 | T1.5              ALL      64  39.1 0.86   -5511 -14522     -4846           6     -665
-Breakout+Quality | SL=atr1.5 | T1.5 SMART(no_resist)     141  52.5 1.46   29447  -6564     27725           9     1722
+Breakout+Quality | SL=atr1.5 | T1.5 SMART(no_resist)     140  52.9 1.48   30471  -6564     28749           9     1722
 
 BEST (TRAIN se chuna): Breakout+Quality | SL=atr1.5 | T1.5 -> +no_resist
-  2 saal: 141 trades, win 52.5%, PF 1.46, P&L Rs 29,447, MaxDD Rs -6,564
-  TRAIN P&L Rs 27,725 | TEST: 9 trades, P&L Rs 1,722
+  2 saal: 140 trades, win 52.9%, PF 1.48, P&L Rs 30,471, MaxDD Rs -6,564
+  TRAIN P&L Rs 28,749 | TEST: 9 trades, P&L Rs 1,722
   RESULT: PASS
-  Exit reasons: {'Target': 57, 'SL': 56, 'Time': 28}
+  Exit reasons: {'Target': 57, 'SL': 55, 'Time': 28}
 
 KAL ke liye stocks (0):
 Aaj koi signal nahi.
