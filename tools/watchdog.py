@@ -57,6 +57,13 @@ def ist_at(day: datetime, s: str) -> datetime:
     return day.replace(hour=h, minute=m, second=0, microsecond=0)
 
 
+def _clean_secret(v: str) -> str:
+    """Secret se invisible characters, quotes aur 'bot' prefix hatao (copy-paste ki galti)."""
+    import unicodedata
+    v = "".join(c for c in (v or "") if unicodedata.category(c) not in ("Cf", "Cc", "Zs") or c == " ").strip().strip("\"'").strip()
+    return v[3:] if v.lower().startswith("bot") and ":" in v else v
+
+
 def send_telegram(text: str) -> bool:
     for attempt in range(3):
         if _send_once(text):
@@ -66,7 +73,7 @@ def send_telegram(text: str) -> bool:
 
 
 def _send_once(text: str) -> bool:
-    tok, chat = os.getenv("TELEGRAM_BOT_TOKEN", "").strip(), os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    tok, chat = _clean_secret(os.getenv("TELEGRAM_BOT_TOKEN", "")), _clean_secret(os.getenv("TELEGRAM_CHAT_ID", ""))
     if not tok or not chat:
         print("Telegram secrets missing")
         return False

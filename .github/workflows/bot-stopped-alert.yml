@@ -29,7 +29,10 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, urllib.request
-          e = os.environ
+          import unicodedata
+          cl = lambda v: ''.join(c for c in (v or '') if unicodedata.category(c) not in ('Cf', 'Cc')).strip().strip('\"\'')
+          e = dict(os.environ)
+          e['TELEGRAM_BOT_TOKEN'], e['TELEGRAM_CHAT_ID'] = cl(e.get('TELEGRAM_BOT_TOKEN')), cl(e.get('TELEGRAM_CHAT_ID'))
           text = (f"🛑 BOT RUK GAYA - {e['REPO'].split('/')[-1]}\n"
                   f"Workflow: {e['WF_NAME']}\n"
                   f"Result: {e['WF_RESULT']}\n\n"
